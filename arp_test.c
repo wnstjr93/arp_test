@@ -11,10 +11,13 @@
 #define MAC_BUF_LEN 20
 
 void get_mac(void);
+void make_eth(u_char *packet);
+void make_arp(u_char *packet);
+
 typedef struct ether_header ether_header; //ethernet.h
 typedef struct ether_arp ether_arp; //if_ether.h
 
-const char *kStringMacAddree = "/sys/class/net/eth0/address";
+const char *kMacDirectory = "/sys/class/net/eth0/address";
 
 int main(int argc, char *argv[])
 {
@@ -67,7 +70,7 @@ int main(int argc, char *argv[])
 */
 	get_mac();
 	make_eth(packet);
-	
+//	make_arp(packet);
 
 	
 //	pcap_next_ex(handle, &header,&packet);
@@ -77,14 +80,15 @@ int main(int argc, char *argv[])
 
 void get_mac(void)
 {
-	FILE *fp = fopen(kStringMacAddree, "r");
+	FILE *fp = fopen(kMacDirectory, "r");
 	char mac[MAC_BUF_LEN] = {'\0', };
 	ether_header ether;
 
 	fgets(mac, MAC_BUF_LEN, fp);
 	for(int i=0;i<ETH_ALEN;i++){
-		ether.ether_dhost[i] = strtol(&mac[i*3], NULL, 16);
-		printf("%02X :",ether.ether_dhost[i]);
+		ether.ether_shost[i] = strtol(&mac[i*3], NULL, 16);
+		if(i!=ETH_ALEN-1)printf("%02X :",ether.ether_dhost[i]);
+		else printf("%02X\n",ether.ether_dhost[i]);
 	}
 
 	fclose(fp);
@@ -94,17 +98,52 @@ void make_eth(u_char *packet)
 {
 	ether_header *ether;
 	ether=(ether_header *)packet;
-	memset(ether->ether_shost,0xff,ETH_ALEN);
-	ether_type=ETHERTYPE_ARP;
+	//memset(ether->ether_dhost,'\xff',ETH_ALEN);
+	
+	ether->ether_type=htons(ETHERTYPE_ARP);
+	printf("eth_dho:");
+	for(int i=0;i<ETH_ALEN;i++)
+	printf("%02X : ",ether->ether_type);
+	printf("%04X",ether->ether_type);
 }
-
 void make_arp(u_char *packet)
 {
-	eth_arp *arp;
-	packet+=sizeof(ether_header);
-	arp=(eth_arp *)packet;
 
+	u_int16_t hd_type=0x0001;
+	u_int16_t pro_type=0x0800;
+	u_char hd_size=0x06;
+	u_char pro_size=0x04;
+	u_int16_t opcode=0x0001;
+	ether_header *ether;
+	ether_arp *arp;
 	
-
-
+	packet+=sizeof(ether_header);
+	arp=(ether_arp *)packet;
+	
+	/*ether_arp -  arphdr ea_hdr*/
+	arp->ea_hdr.ar_hrd=htons(hd_type);
+	arp->ea_hdr.ar_pro=htons(pro_type);
+	arp->ea_hdr.ar_hln=(hd_size);
+	arp->ea_hdr.ar_pln=(pro_size);
+	arp->ea_hdr.ar_op=htons(opcode);
+	/*change like define!*/
+	printf("arp_sMAC:");
+	for(int i=0;i<ETH_ALEN;i++){
+		arp->arp_sha[i]=ether->ether_shost[i];
+		if(i!=ETH_ALEN-1)printf("%02X :",arp->arp_sha[i]);
+		else printf("%02X\n",arp->arp_sha[i]);
+	}
+	inet_pton(AF_INET,"192.168.32.217",arp->arp_spa);
+		memset(arp->arp_tha,0x00,ETH_ALEN);
+		for(int i=0;i<ETH_ALEN;i++){
+			if(i!=ETH_ALEN-1)printf("%02X :",arp->arp_tha[i]);
+			else printf("%02X\n",arp->arp_tha[i]);
+		}
+	inet_pton(AF_INET,"192.168.32.254",arp->arp_tpa);
 }
+
+
+
+
+
+
