@@ -7,10 +7,11 @@
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
 #include <arpa/inet.h>
+#include <net/ethernet.h>
 
 #define MAC_BUF_LEN 20
 
-void get_mac(void);
+void get_mac(u_int8_t *shost);
 void make_eth(u_char *packet);
 void make_arp(u_char *packet);
 
@@ -26,39 +27,39 @@ int main(int argc, char *argv[])
 	char *dev;			/* The device to sniff on */
 	char errbuf[PCAP_ERRBUF_SIZE];	/* Error string */
 	struct bpf_program fp;		/* The compiled filter */
-	char filter_exp[] = "port 80";	/* The filter expression */
+	char filter_exp[] ="";	/* The filter expression */
 	bpf_u_int32 mask;		/* Our netmask */
 	bpf_u_int32 net;		/* Our IP */
 	struct pcap_pkthdr header;	/* The header that pcap gives us */
-	u_char *packet;		/* The actual packet */
-
+	u_char *packet=malloc(60);		/* The actual packet */
+	
 	/* Define the device */
-/*
+
 	dev = pcap_lookupdev(errbuf);
 	if (dev == NULL) {
 		fprintf(stderr, "Couldn't find default device: %s\n", errbuf);
 		return(2);
 	}
-*/
+
 	/* Find the properties for the device */
-/*
-	if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
+
+	if (pcap_lookupnet(argv[1], &net, &mask, errbuf) == -1) {
 		fprintf(stderr, "Couldn't get netmask for device %s: %s\n", dev, errbuf);
 		net = 0;
 		mask = 0;
 	}
-*/
+
 
 	/* Open the session in promiscuous mode */
-/*
-   handle = pcap_open_live(argv[1], BUFSIZ, 1, 1000, errbuf);
+
+   handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
 	if (handle == NULL) {
 		fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
 		return(2);
 	}
-*/
+
 	/* Compile and apply the filter */
-/*
+
 	if (pcap_compile(handle, &fp, filter_exp, 0, net) == -1) {
 		fprintf(stderr, "Couldn't parse filter %s: %s\n", filter_exp, pcap_geterr(handle));
 		return(2);
@@ -67,10 +68,12 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(handle));
 		return(2);
 	}
-*/
-	get_mac();
+
+	//get_mac();
 	make_eth(packet);
-//	make_arp(packet);
+	make_arp(packet);
+	if(pcap_sendpacket(handle,packet,60))
+		puts("fail");
 
 	
 //	pcap_next_ex(handle, &header,&packet);
@@ -78,33 +81,37 @@ int main(int argc, char *argv[])
 	return(0);
 }
 
-void get_mac(void)
+void get_mac(uint8_t *shost)
 {
 	FILE *fp = fopen(kMacDirectory, "r");
 	char mac[MAC_BUF_LEN] = {'\0', };
-	ether_header ether;
+	ether_header* ether=malloc(sizeof(ether_header));
 
 	fgets(mac, MAC_BUF_LEN, fp);
 	for(int i=0;i<ETH_ALEN;i++){
-		ether.ether_shost[i] = strtol(&mac[i*3], NULL, 16);
-		if(i!=ETH_ALEN-1)printf("%02X :",ether.ether_dhost[i]);
-		else printf("%02X\n",ether.ether_dhost[i]);
+		ether->ether_shost[i] = strtol(&mac[i*3], NULL, 16);
+		if(i!=ETH_ALEN-1)printf("%02X :",ether->ether_shost[i]);
+		else printf("%02X\n",ether->ether_shost[i]);
 	}
 
 	fclose(fp);
+	memcpy(shost, ether->ether_shost, 6);
 }
 
 void make_eth(u_char *packet)
 {
+
 	ether_header *ether;
 	ether=(ether_header *)packet;
-	//memset(ether->ether_dhost,'\xff',ETH_ALEN);
-	
-	ether->ether_type=htons(ETHERTYPE_ARP);
+	u_int8_t *shost_temp = malloc(6);
+	get_mac(shost_temp);
+	memcpy(ether->ether_shost,shost_temp,ETH_ALEN);
+	ether->ether_type=htons(0x0806); //ETHERTYPE_ARP
 	printf("eth_dho:");
-	for(int i=0;i<ETH_ALEN;i++)
-	printf("%02X : ",ether->ether_type);
-	printf("%04X",ether->ether_type);
+	for(int i=0;i<ETH_ALEN;i++){
+	ether->ether_dhost[i]=0xff;
+	printf("%02X : ",ether->ether_dhost[i]);}
+	printf("eth_type:%04X\n",ether->ether_type);
 }
 void make_arp(u_char *packet)
 {
@@ -114,7 +121,7 @@ void make_arp(u_char *packet)
 	u_char hd_size=0x06;
 	u_char pro_size=0x04;
 	u_int16_t opcode=0x0001;
-	ether_header *ether;
+	//ether_header *ether;
 	ether_arp *arp;
 	
 	packet+=sizeof(ether_header);
@@ -128,19 +135,20 @@ void make_arp(u_char *packet)
 	arp->ea_hdr.ar_op=htons(opcode);
 	/*change like define!*/
 	printf("arp_sMAC:");
-	for(int i=0;i<ETH_ALEN;i++){
-		arp->arp_sha[i]=ether->ether_shost[i];
-		if(i!=ETH_ALEN-1)printf("%02X :",arp->arp_sha[i]);
-		else printf("%02X\n",arp->arp_sha[i]);
-	}
+//	for(int i=0;i<ETH_ALEN;i++){
+		get_mac(arp->arp_sha);
+//		if(i!=ETH_ALEN-1)printf("%02X :",arp->arp_sha[i]);
+//		else printf("%02X\n",arp->arp_sha[i]);
+//	}
 	inet_pton(AF_INET,"192.168.32.217",arp->arp_spa);
 		memset(arp->arp_tha,0x00,ETH_ALEN);
-		for(int i=0;i<ETH_ALEN;i++){
-			if(i!=ETH_ALEN-1)printf("%02X :",arp->arp_tha[i]);
-			else printf("%02X\n",arp->arp_tha[i]);
-		}
+//		for(int i=0;i<ETH_ALEN;i++){
+//			if(i!=ETH_ALEN-1)printf("%02X :",arp->arp_tha[i]);
+//			else printf("%02X\n",arp->arp_tha[i]);
+//		}
 	inet_pton(AF_INET,"192.168.32.254",arp->arp_tpa);
 }
+
 
 
 
